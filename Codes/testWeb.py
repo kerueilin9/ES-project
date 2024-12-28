@@ -22,10 +22,13 @@ from utils.plots import plot_one_box
 from utils.torch_utils import select_device, load_classifier, time_synchronized
 
 import os
+from gevent import monkey
+monkey.patch_all()
 os.environ['QT_QPA_PLATFORM'] = 'xcb'
 
 ############################################################ flask
 distance_to_update = "Initial Value"
+lock = threading.Lock()
 app = Flask(__name__, static_folder='')
 socketio = SocketIO(app)
 
@@ -83,17 +86,18 @@ def get_distance():
     distance_cm = (pulse_len * 34300) / 2
     return distance_cm
 
+camera_lock = threading.Lock()
 ############################################################ Camera
 def capture_image():
-    # 捕捉影像
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        print("無法打開攝像頭")
-        exit()
-    ret, frame = cap.read()
-    if ret:
-        cv2.imwrite("image.jpg", frame)
-        print("照片已保存為 image.jpg")
+    with camera_lock:
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            print("無法打開攝像頭")
+            return
+        ret, frame = cap.read()
+        if ret:
+            cv2.imwrite("image.jpg", frame)
+            print("照片已保存為 image.jpg")
         cap.release()
 
 ############################################################ 
@@ -136,43 +140,49 @@ def detect_single_image(image_path, save_img=False):
                     plot_one_box(xyxy, im0s, label=label, color=colors[int(cls)], line_thickness=3)
                     print(label)
 
-        # Display the image
-        # cv2.imshow("Result", im0s)
         if save_img:
             save_path = f"result_{Path(path).name}"
             cv2.imwrite(save_path, im0s)
+            time.sleep(0.5)
+            socketio.emit('reload')
 
-        # while True:
-            # 檢查是否按下按鍵，或是否關閉視窗
-            # if cv2.waitKey(1) & 0xFF == ord('q'):  # 按下 'q' 鍵退出
-            #     break
-            # 檢測視窗是否已關閉
-            # if cv2.getWindowProperty("Result", cv2.WND_PROP_VISIBLE) < 1:
-            #     break
-
-        # 銷毀所有視窗
-        # cv2.destroyAllWindows()
-
-def update_value():
+def monitor_ultrasound():
     global distance_to_update
     while True:
+        with lock:
+            distance = get_distance()
+            if distance is not None:
+                distance_to_update = f"{distance:.2f} cm"
+                if distance < 5:
+                    beep_buzzer()
+            else:
+                distance_to_update = "Error"
+            socketio.emit('update', {'data': distance_to_update})
         time.sleep(1)
-        distance_to_update = f"{get_distance()} cm"
-        socketio.emit('update', {'data': distance_to_update})
-        ultrasound_distance = get_distance()
-        if ultrasound_distance is not None:
-        #    print("cm=%f" % ultrasound_distance)
-            if ultrasound_distance < 5:
-                beep_buzzer()
 
-threading.Thread(target=update_value, daemon=True).start()
+def monitor_button():
+    global lock
+    button_pressed = False
+    while True:
+        with lock:
+            button_state = GPIO.input(BUTTON_PIN)
+            if button_state == GPIO.HIGH and not button_pressed:
+                button_pressed = True
+                capture_image()
+                time.sleep(1)
+                detect_single_image("image.jpg", True)
+            elif button_state == GPIO.LOW and button_pressed:
+                button_pressed = False
+        time.sleep(1)
 
 @app.route('/')
 def home():
     return render_template('index.html')
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    threading.Thread(target=monitor_button, daemon=True).start()
+    threading.Thread(target=monitor_ultrasound, daemon=True).start()
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default='../Model/weights/best.pt', help='model.pt path(s)')
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
@@ -183,31 +193,6 @@ if __name__ == '__main__':
     parser.add_argument('--classes', default=None, nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     opt = parser.parse_args()
-    try:
-        with torch.no_grad():
-    ###################################################################################            
-            print("系統啟動，請按下按鈕拍攝照片...")    
-            button_pressed = False  # 用於檢測按鈕是否按下
-            while True:
-                # 等待按鈕按下
-                button_state = GPIO.input(BUTTON_PIN)
-                
-                if button_state == GPIO.HIGH and not button_pressed:  # 如果按鈕被按下且之前未按下
-                    button_pressed = True  # 記錄按鈕已被按下
-                    capture_image()
-                    time.sleep(1)
-                    detect_single_image("image.jpg", True)
-                elif button_state == GPIO.LOW and button_pressed:  # 如果按鈕釋放
-                    button_pressed = False  # 記錄按鈕已釋放
-                
-                ultrasound_distance = get_distance()
-                if ultrasound_distance is not None:
-                #    print("cm=%f" % ultrasound_distance)
-                    if ultrasound_distance < 5:
-                        beep_buzzer()
-                time.sleep(1)  # 加入短暫延遲，避免過於頻繁的檢測
-    except KeyboardInterrupt:
-        print("shutdown")
-    finally:
-        GPIO.cleanup()
+    socketio.run(app, debug=True)
+
 

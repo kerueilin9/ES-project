@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detect Page</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+        header {
+            background-color: #4CAF50;
+            color: white;
+            text-align: center;
+            padding: 20px 0;
+        }
+        .container {
+            width: 90%;
+            margin: 20px auto;
+        }
+        .images {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .images img {
+            width: 95%;
+            height: auto;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+        }
+        .label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .label div {
+            width: 45%;
+            text-align: center;
+            font-weight: bold;
+        }
+        .result {
+            margin-bottom: 20px;
+            font-size: 1.2em;
+            text-align: center;
+        }
+        .ultrasound {
+            text-align: center;
+            font-size: 1.2em;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Detect Page</h1>
+    </header>
+
+    <div class="container">
+        <div class="images">
+            <div>
+                <div class="label">
+                    <h3>Before Recognition</h3>
+                </div>
+                <img src="/image.jpg" alt="Before Recognition">
+            </div>
+            <div>
+                <div class="label">
+                    <h3>After Recognition</h3>
+                </div>
+                <img src="/result_image.jpg" alt="After Recognition">
+            </div>
+        </div>
+
+        <div class="ultrasound">
+            <p>Ultrasound Distance Measurement: <span id="dynamicValue">Loading...</span></p>
+        </div>
+    </div>
+    
+    <script>
+        var socket = io.connect('http://' + document.domain + ':' + location.port);
+
+        socket.on('update', function(data) {
+            document.getElementById('dynamicValue').innerText = data.data;
+        });
+        
+        socket.on('reload', function() {
+            console.log("重整指令收到，重新載入網頁...");
+            window.location.reload();
+        });
+    </script>
+</body>
+</html>
+
