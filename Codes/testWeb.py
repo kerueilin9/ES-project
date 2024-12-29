@@ -143,7 +143,7 @@ def detect_single_image(image_path, save_img=False):
         if save_img:
             save_path = f"result_{Path(path).name}"
             cv2.imwrite(save_path, im0s)
-            time.sleep(0.5)
+            time.sleep(2)
             socketio.emit('reload')
 
 def monitor_ultrasound():
